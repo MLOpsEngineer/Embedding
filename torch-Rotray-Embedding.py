@@ -22,39 +22,72 @@ def default(val, d):
     # 반환: val이 존재하면 val, 그렇지 않으면 d
     return val if exists(val) else d
 
-# broadcat, tortoise-tts에서 사용 중인 함수
-
-def broadcat(tensors, dim = -1):
-    # 여러 텐서를 주어진 차원에서 브로드캐스트 후 연결
-    # 파라미터:
-    # - tensors: 연결할 텐서들의 리스트
-    # - dim: 연결할 차원 (기본값은 -1, 즉 마지막 차원)
-    # 반환: 브로드캐스트 후 연결된 텐서
-    broadcasted_tensors = broadcast_tensors(*tensors)
-    return torch.cat(broadcasted_tensors, dim = dim)
+# broadcat 사용되지 않음, tortoise-tts에서 사용 중인 함수
+# def broadcat(tensors, dim = -1):
+#     # 여러 텐서를 주어진 차원에서 브로드캐스트 후 연결
+#     # 파라미터:
+#     # - tensors: 연결할 텐서들의 리스트
+#     # - dim: 연결할 차원 (기본값은 -1, 즉 마지막 차원)
+#     # 반환: 브로드캐스트 후 연결된 텐서
+#     broadcasted_tensors = broadcast_tensors(*tensors)
+#     return torch.cat(broadcasted_tensors, dim = dim)
 
 def slice_at_dim(t, dim_slice: slice, *, dim):
-    # 주어진 차원에서 텐서를 슬라이스
-    # 파라미터:
-    # - t: 슬라이스할 텐서
-    # - dim_slice: 슬라이스 객체
-    # - dim: 슬라이스할 차원
-    # 반환: 슬라이스된 텐서
+    '''
+    파라미터
+    t: 슬라이스할 텐서
+    dim_slice: 슬라이스 객체
+    dim: 슬라이스할 차원
+    반환: 슬라이스된 텐서
+    
+    함수 동작 과정
+    1. dim = -1 + 3 # t.ndim = 3, 따라서 dim = 2
+    2. colons = [slice(None), slice(None), slice(None)]
+    3. colons[2] = slice(None, 2) # 마지막 차원에 슬라이스 적용
+    4. 최종 슬라이스 리스트: [slice(None), slice(None), slice(None, 2)]
+    5. 슬라이싱 수행: t[:, :, :2]
+    '''
+
+    # dim이 음수 일 경우 t.ndim을 더해서 양수 인덱스로 변환
+    # dim이 -2 이고 차원수가 5라면 dim은 3이 됨. 이는 음수 일 경우와 동일함
     dim += (t.ndim if dim < 0 else 0)
+    #t.ndim = 3이면 colons = [slice(None), slice(None), slice(None)]가 됩니다.
     colons = [slice(None)] * t.ndim
     colons[dim] = dim_slice
+    # 리턴 값은 t[:, dim_slice, :] 와 동일
     return t[tuple(colons)]
 
 # rotary embedding 헬퍼 함수들
 
 def rotate_half(x):
-    # 텐서를 반으로 나누어 회전
-    # 파라미터:
-    # - x: 회전할 텐서
-    # 반환: 회전된 텐서
+    '''
+    입력 텐서를 반으로 나누어 회전하는 함수로 동작 예시는 아래와 같음
+    x = torch.tensor([[[1, 2, 3, 4, 5, 6]]])  # 크기: (1, 1, 6)
+    
+    rearrange(x, '... (d r) -> ... d r', r = 2) 적용 후:
+    x = [[[[1, 2],
+        [3, 4],
+        [5, 6]]]]
+
+    x1, x2 = x.unbind(dim = -1) 적용하여 마지막 차원을 기준으로 반으로 나눈 후:
+    x1 = [[[1, 3, 5]]]
+    x2 = [[[2, 4, 6]]]
+
+    torch.stack((-x2, x1), dim = -1) 적용 후:
+    [[[[-2, 1],
+    [-4, 3],
+    [-6, 5]]]]
+
+    최종 리턴 값:
+    x = [[[ -2,  1, -4,  3, -6,  5]]]
+    '''
+
+    # 만약 x의 크기가 (batch_size, seq_len, d * 2)라면 (batch_size, seq_len, d, 2)가 됩니다
     x = rearrange(x, '... (d r) -> ... d r', r = 2)
     x1, x2 = x.unbind(dim = -1)
+    # 텐서를 반으로 나누어 90도 회전. 이는 아래 t_transformed 에서 사인연산에 사용됨
     x = torch.stack((-x2, x1), dim = -1)
+    # 텐서를 다시 원래의 크기로 변환 (batch_size, seq_len, d * 2)
     return rearrange(x, '... d r -> ... (d r)')
 
 @autocast('cuda', enabled = False)
@@ -79,6 +112,7 @@ def apply_rotary_emb(
 
     if t.ndim == 3 or exists(freqs_seq_dim):
         freqs_seq_dim = default(freqs_seq_dim, 0)
+        # t.shape = (batch_size, seq_len, dim)이고 seq_dim이 -2이므로 t.shape[-2]은 seq_len을 추출함.
         seq_len = t.shape[seq_dim]
         freqs = slice_at_dim(freqs, slice(-seq_len, None), dim = freqs_seq_dim)
 
@@ -99,22 +133,21 @@ def apply_rotary_emb(
 
     return out.type(dtype)
 
-# 학습된 회전 헬퍼
+# 학습된 회전 헬퍼이며 안쓰임
+# def apply_learned_rotations(rotations, t, start_index = 0, freq_ranges = None):
+#     # 학습된 회전을 텐서에 적용
+#     # 파라미터:
+#     # - rotations: 회전 텐서
+#     # - t: 변환할 텐서
+#     # - start_index: 회전을 시작할 인덱스
+#     # - freq_ranges: 주파수 범위 (기본값은 None)
+#     # 반환: 회전이 적용된 텐서
+#     if exists(freq_ranges):
+#         rotations = einsum('..., f -> ... f', rotations, freq_ranges)
+#         rotations = rearrange(rotations, '... r f -> ... (r f)')
 
-def apply_learned_rotations(rotations, t, start_index = 0, freq_ranges = None):
-    # 학습된 회전을 텐서에 적용
-    # 파라미터:
-    # - rotations: 회전 텐서
-    # - t: 변환할 텐서
-    # - start_index: 회전을 시작할 인덱스
-    # - freq_ranges: 주파수 범위 (기본값은 None)
-    # 반환: 회전이 적용된 텐서
-    if exists(freq_ranges):
-        rotations = einsum('..., f -> ... f', rotations, freq_ranges)
-        rotations = rearrange(rotations, '... r f -> ... (r f)')
-
-    rotations = repeat(rotations, '... n -> ... (n r)', r = 2)
-    return apply_rotary_emb(rotations, t, start_index = start_index)
+#     rotations = repeat(rotations, '... n -> ... (n r)', r = 2)
+#     return apply_rotary_emb(rotations, t, start_index = start_index)
 
 # 클래스들
 
