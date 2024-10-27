@@ -368,30 +368,30 @@ class RotaryEmbedding(Module):
 
         return scale
 
-    def get_axial_freqs(self, *dims):
-        # 축 주파수를 가져옴
-        # 파라미터:
-        # - dims: 각 차원의 크기
-        # 반환: 축 주파수 텐서
-        Colon = slice(None)
-        all_freqs = []
+    # def get_axial_freqs(self, *dims):
+    #     # 축 주파수를 가져옴
+    #     # 파라미터:
+    #     # - dims: 각 차원의 크기
+    #     # 반환: 축 주파수 텐서
+    #     Colon = slice(None)
+    #     all_freqs = []
 
-        for ind, dim in enumerate(dims):
-            if self.freqs_for == 'pixel':
-                pos = torch.linspace(-1, 1, steps = dim, device = self.device)
-            else:
-                pos = torch.arange(dim, device = self.device)
+    #     for ind, dim in enumerate(dims):
+    #         if self.freqs_for == 'pixel':
+    #             pos = torch.linspace(-1, 1, steps = dim, device = self.device)
+    #         else:
+    #             pos = torch.arange(dim, device = self.device)
 
-            freqs = self.forward(pos, seq_len = dim)
+    #         freqs = self.forward(pos, seq_len = dim)
 
-            all_axis = [None] * len(dims)
-            all_axis[ind] = Colon
+    #         all_axis = [None] * len(dims)
+    #         all_axis[ind] = Colon
 
-            new_axis_slice = (Ellipsis, *all_axis, Colon)
-            all_freqs.append(freqs[new_axis_slice])
+    #         new_axis_slice = (Ellipsis, *all_axis, Colon)
+    #         all_freqs.append(freqs[new_axis_slice])
 
-        all_freqs = broadcast_tensors(*all_freqs)
-        return torch.cat(all_freqs, dim = -1)
+    #     all_freqs = broadcast_tensors(*all_freqs)
+    #     return torch.cat(all_freqs, dim = -1)
 
     @autocast('cuda', enabled = False)
     def forward(
